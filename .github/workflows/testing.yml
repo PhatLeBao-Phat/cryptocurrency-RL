@@ -20,6 +20,7 @@ jobs:
     - name: Setup Conda
       uses: conda-incubator/setup-miniconda@v3.0.4
       with:
+        auto-activate-base: false
         environment-file: environment.yml
         activate-environment: env 
     - name: Display Python version
