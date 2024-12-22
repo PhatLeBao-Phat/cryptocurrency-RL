@@ -104,7 +104,7 @@ class CryptoPipeline(Pipeline):
         # config 
         logger.info("Parsing Configuration...")
         db_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="mysql-dev")
-        api_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="finance_api")
+        api_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="finance-api")
         api = APIClient(api_config.get("api_key"))
         logger.info("Finished Parsing Configuration")
 

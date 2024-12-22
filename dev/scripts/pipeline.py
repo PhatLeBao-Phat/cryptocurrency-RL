@@ -268,7 +268,7 @@ class MySQLLoader(Loader):
         # Get unique values to check exist
         if isinstance(unique_key, str):
             unique_key = [unique_key]
-        incremental_values = set(zip(*[db_df[key] for key in unique_key]))
+
         # Create prepared cursor 
         cursor = dbconnect.cursor(prepared=True)
 
@@ -282,13 +282,32 @@ class MySQLLoader(Loader):
         # Inject ingestion Time
         df["IngestionTime"] = self.get_ingestion_time()
         colnames = ", ".join(df.columns)
+
+        # Filter only those not exists 
+        df = self._filter_exists(df, db_df, unique_key)
+        
+        # Load
         for _, row in df.iterrows():
-            validate_set = (row[key] for key in unique_key)
-            if not validate_set in incremental_values:
-                continue
             values = ", ".join(["?" for _ in range(len(df.columns))])
             sql = f"INSERT INTO {table_name} ({colnames}) " + f"VALUES ({values})"
             cursor.execute(sql, tuple(row))
     
     def _append_load(self, data : Dataset, table_mapping) -> None: 
         pass
+
+    @staticmethod
+    def _filter_exists(df, db_df, unique_key) -> None:
+        # Get incremental values 
+        if isinstance(unique_key, str):
+            unique_key = [unique_key]
+        incremental_values = set(zip(*[db_df[key] for key in unique_key]))
+
+        # Filtering
+
+        bol_filter = df.apply(
+            lambda row : set(row[key] for key in unique_key) in incremental_values,
+            axis=1,
+        )
+        df = df[bol_filter]
+
+        return df
