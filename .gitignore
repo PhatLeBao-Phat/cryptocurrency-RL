@@ -1,0 +1,54 @@
+notebooks
+config.cfg
+log
+
+### Template
+# Python Bytecode files
+*.pyc
+__pycache__/
+
+# Virtual Environment
+myenv/
+.env
+
+# Jupyter Notebook files
+*.ipynb
+*.ipynb_checkpoints/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Testing files
+*.pytest_cache/
+.tox/
+
+# Build directories
+build/
+dist/
+*.egg-info/
+
+# Module-specific artifacts
+*.egg
+*.tar.gz
+*.whl
+
+# IDE-specific files
+*.idea/
+.vscode/
+.settings/
+
+# Optional: IDE-specific user settings
+*.suo
+*.user
+*.sublime-project
+*.sublime-workspace
+
+# For Docker
+.Dockerfile
+docker-compose.*
+
+# Miscellaneous
+*.swp
+*.bak
