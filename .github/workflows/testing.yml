@@ -24,6 +24,10 @@ jobs:
         activate-environment: env 
     - name: Display Python version
       run: python -c "import sys; print(sys.version)"
-    - name: perform test
+    - name: Install dependencies
+      run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+    - name: Test with pytest
       run: pytest testing.py
     
