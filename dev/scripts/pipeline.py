@@ -4,6 +4,7 @@
 
 # Import
 import mysql.connector as mysql
+import pyodbc
 import pandas as pd
 from datetime import datetime
 import pytz
@@ -98,6 +99,16 @@ class Loader(PipelineStage):
         current_time = datetime.now(pytz.timezone(tz))
 
         return current_time
+    
+    @staticmethod
+    def match_columns(df : pd.DataFrame, columns : List[str]) -> bool:
+        for col in df.columns:
+            if col not in columns:
+                return False
+        
+        for col in columns:
+            if col not in df.columns:
+                return False
     
     def run(self, *args, **kwargs) -> None:
         self.load(*args, **kwargs)
@@ -284,7 +295,7 @@ class MySQLLoader(Loader):
         colnames = ", ".join(df.columns)
 
         # Filter only those not exists 
-        df = self._filter_exists(df, db_df, unique_key)
+        # df = self._filter_exists(df, db_df, unique_key)
         
         # Load
         for _, row in df.iterrows():
@@ -293,6 +304,146 @@ class MySQLLoader(Loader):
             cursor.execute(sql, tuple(row))
     
     def _append_load(self, data : Dataset, table_mapping) -> None: 
+        pass
+
+    @staticmethod
+    def _filter_exists(df, db_df, unique_key) -> None:
+        # Get incremental values 
+        if isinstance(unique_key, str):
+            unique_key = [unique_key]
+        incremental_values = set(zip(*[db_df[key] for key in unique_key]))
+
+        # Filtering
+
+        bol_filter = df.apply(
+            lambda row : set(row[key] for key in unique_key) in incremental_values,
+            axis=1,
+        )
+        df = df[bol_filter]
+
+        return df
+    
+
+class AzureMySQL(Loader):
+    def __init__(self, 
+        config : ConfigManager, 
+        table_name : Optional[str] = None,
+        load_method : Literal["incremental", "append"] = None,
+        unique_key : str = None):
+        super().__init__()
+        self.config = config 
+        self.table_name = table_name
+        self.load_method = load_method
+        self.unique_key = unique_key
+
+        logger.info(f"Initialized {self.__class__.__name__} with {self.__dict__}")
+    
+
+    def db_connect(self, config : ConfigManager):
+        driver = config.get("driver")
+        server = config.get("server")
+        database = config.get("db")
+        username = config.get("user")
+        password = config.get("password")
+        dbconnect = pyodbc.connect('DRIVER='+driver+';SERVER=tcp:'+server+';PORT=1433;DATABASE='+database+';UID='+username+';PWD='+ password)
+
+        return dbconnect
+    
+    @log_operation
+    def load(
+        self, 
+        data : Dataset, 
+        table_name : str = None,
+        load_method : Literal["incremental", "append"] = None,
+        unique_key : List[str] = None,
+        load_method_mapping : Dict[str, str] = None,
+    ) -> None:
+        if not unique_key:
+            unique_key = self.unique_key
+        if not load_method:
+            load_method = self.load_method
+        if not table_name:
+            table_name = self.table_name
+
+        # Get connect
+        dbconnect = self.db_connect(self.config)
+
+        # Get available dataset
+        if not load_method_mapping and not load_method:
+            raise ValueError(
+                f"Invalid Load method {load_method}." 
+                "Input load_method or load_method_mapping"
+            )
+        
+        name = data.name
+
+        # Fetch load method 
+        if load_method_mapping:
+            load_method = load_method_mapping[name]
+
+        # Add data to database
+        df = data.data
+        
+        # Incremental mode
+        if load_method == "incremental":
+            self._incremental_load(
+                df,
+                unique_key,
+                table_name,
+                dbconnect,
+            )
+        elif load_method == "append":
+            self._append_load(
+                df,
+                table_name
+            )
+        else:
+            raise ValueError(f"Invalid Load method {load_method}")
+            
+        dbconnect.commit()
+        dbconnect.close()
+    
+    def _incremental_load(
+            self, 
+            df : pd.DataFrame, 
+            unique_key : str | List[str],
+            table_name : str, 
+            dbconnect : str, 
+        ) -> None:
+        cursor = dbconnect.cursor()
+        cursor.execute(f"SELECT * FROM {table_name}")
+        column_names = [column[0] for column in cursor.description]
+        data = [list(d) for d in cursor.fetchall()]
+        db_df = pd.DataFrame(data, columns=column_names)
+        
+        # Get unique values to check exist
+        if isinstance(unique_key, str):
+            unique_key = [unique_key]
+
+        # Create prepared cursor 
+        cursor = dbconnect.cursor()
+
+        # Check matching columns 
+        database_cols = [col for col in column_names if col != "IngestionTime" and col != "id"]
+        if self.match_columns(df, database_cols):
+            raise KeyError(
+                f"Not matching between database cols {list(df.columns)}" 
+                f"and table cols {database_cols}")
+
+        # Inject ingestion Time
+        df["IngestionTime"] = self.get_ingestion_time()
+        colnames = ", ".join(df.columns)
+
+        # Filter only those not exists 
+        # df = self._filter_exists(df, db_df, unique_key)
+        
+        # Load
+        for _, row in df.iterrows():
+            values = ", ".join(["?" for _ in range(len(df.columns))])
+            sql = f"INSERT INTO {table_name} ({colnames}) " + f"VALUES ({values})"
+            cursor.execute(sql, tuple(row))
+    
+    def _append_load(self, data : Dataset, table_name : str) -> None: 
         pass
 
     @staticmethod

@@ -105,6 +105,7 @@ class CryptoPipeline(Pipeline):
         logger.info("Parsing Configuration...")
         db_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="mysql-dev")
         api_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="finance-api")
+        azure_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="azure-mysql")
         api = APIClient(api_config.get("api_key"))
         logger.info("Finished Parsing Configuration")
 
@@ -123,7 +124,7 @@ class CryptoPipeline(Pipeline):
         x = transform_stage.run(x)
 
         # Load to db
-        logger.info("Loading to database...")
+        logger.info("Loading to MySQL database...")
         loader_stage = MySQLLoader(
             db_config, 
             table_mapping="airflowdb.dim_crypto",
@@ -131,6 +132,15 @@ class CryptoPipeline(Pipeline):
             unique_key="symbol",
         )
         loader_stage.run(x)
-        logger.info("Finished load data to db")
+        logger.info("Finished load data to MySQL db")
 
-    
+        # Load to Azure
+        logger.info("Loading to Azure SQL database...")
+        loader_stage = AzureMySQL(
+            azure_config, 
+            table_name="dim_crypto",
+            load_method="incremental",
+            unique_key="symbol",
+        )
+        loader_stage.run(x)
+        logger.info("Finished load data to Azure db")
