@@ -6,11 +6,9 @@
 import requests
 from pathlib import Path
 import pandas as pd
-import json
 from typing import *
 from pathlib import Path
-
-print(Path.cwd())
+from tqdm import tqdm
 
 # Local import
 from dev.scripts.pipeline import *
@@ -19,7 +17,8 @@ from dev.utils.logging import *
 
 
 class CryptoExtractor(Extractor):
-    """ "Extract CryptoCurrency info"""
+    """Extract CryptoCurrency info
+    """
 
     def __init__(
         self,
@@ -27,6 +26,13 @@ class CryptoExtractor(Extractor):
         endpoint: str | List[str],
         config: Optional[ConfigManager] = None,
     ) -> None:
+        """
+        Parameters
+        -----------
+        api_client : APIClient object to send HTTPs method. 
+        config : ConfigManager includes authentication and url. Optional.
+        endpoint : 
+        """
         super().__init__()
         self.api_client = api_client
         self.config = config
@@ -135,12 +141,78 @@ class CryptoPipeline(Pipeline):
         logger.info("Finished load data to MySQL db")
 
         # Load to Azure
-        logger.info("Loading to Azure SQL database...")
-        loader_stage = AzureMySQL(
-            azure_config, 
-            table_name="dim_crypto",
+        # logger.info("Loading to Azure SQL database...")
+        # loader_stage = AzureMySQL(
+        #     azure_config, 
+        #     table_name="dim_crypto",
+        #     load_method="incremental",
+        #     unique_key="symbol",
+        # )
+        # loader_stage.run(x)
+        logger.info("Finished load data to Azure db")
+
+
+# ----------------------------------------------
+#  Quota ETLs
+# ----------------------------------------------
+
+class QuotaPipeline(Pipeline):
+    """ETL Pipline to extract quota object for top 10 Cryptocurrencies"""
+
+    TOP_10_CRYPTO = ["BTC", "ETH", "USDT", "BNB", "USDC", "XRP", "SOL", "ADA", "DOGE", "DOT"]
+
+    def __init__(
+        self, 
+        crypto_symbols : Optional[List[str]] = TOP_10_CRYPTO, 
+        stages : Optional[List[Pipeline]] = None, 
+        config : Optional[ConfigManager] = None, 
+    ):
+        """
+        Parameters
+        -----------
+        crypto_symbols : list of cryptosymbols to be ingested for quotas.
+        stages : 
+        config : 
+        """
+        super().__init__(stages, config)
+        self.crypto_symbols = crypto_symbols
+
+    def run(self) -> None:
+        logger.info("Parsing Configuration...")
+        db_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="mysql-dev")
+        api_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="finance-api")
+        api = APIClient(api_config.get("api_key"))
+        logger.info("Finished Parsing Configuration")
+
+        # Extract 
+        logger.info("Extracting data...")
+        result = list()
+        for symbol in tqdm(self.crypto_symbols):
+            extract_stage = CryptoExtractor(
+                api_client=api, endpoint=f"quote/{symbol}"
+            )
+            result.append(extract_stage.run())
+        x = self._combine_dataset(result)
+        logger.info("Finished extracting data...")
+
+        # Transform
+        logger.info("Transforming data...")
+        x.data["timestamp"] = pd.to_datetime(x.data["timestamp"])
+        x.data["earningsAnnouncement"] = x.data['earningsAnnouncement'].apply(lambda val : pd.to_datetime(val, errors="ignore"))
+        # transform_stage = CryptoTransformer()
+        logger.info("Finished Transform data")
+        # x = transform_stage.run(x)
+
+        # Load to db
+        logger.info("Loading to MySQL database...")
+        loader_stage = MySQLLoader(
+            db_config, 
+            table_mapping="airflowdb.fact_cryptoquota",
             load_method="incremental",
-            unique_key="symbol",
+            unique_key=["symbol", "timestamp"],
         )
         loader_stage.run(x)
-        logger.info("Finished load data to Azure db")
+        logger.info("Finished load data to MySQL db")
+
+
+

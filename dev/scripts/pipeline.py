@@ -10,6 +10,8 @@ from datetime import datetime
 import pytz
 from typing import *
 from abc import ABC, abstractmethod
+from tqdm import tqdm
+from sqlalchemy import create_engine
 
 # Local import 
 from ..utils.config_manager import *
@@ -118,50 +120,41 @@ class Pipeline:
     """Pipeline object for executing the ETL process"""
 
     def __init__(self, 
-        stages : List[Union[PipelineStage, Callable]],
+        stages : Optional[List[Union[PipelineStage, Callable]]] = None,
         config : Optional[ConfigManager] = None,
     ) -> None:
         self.stages = stages 
         self.config = config
 
-    # TODO: Deprecated
-    # @property
-    # def extractor(self) -> Extractor:
-    #     return Extractor
-
-    # @extractor.setter
-    # def extractor(self, extractor_strat : Transformer) -> None:
-    #     self._transformer = extractor_strat
-
-    # @property
-    # def transformer(self) -> Transformer:
-    #     return Extractor
-
-    # @transformer.setter
-    # def transformer(self, transformer_strat : Transformer) -> None:
-    #     self._transformer = transformer_strat
-
-    # @property
-    # def loader(self) -> Loader:
-    #     return Loader
-
-    # @loader.setter
-    # def transformer(self, loader_strat : Loader) -> None:
-    #     self._loader = loader_strat
+    # @log_operation
+    # def run(self) -> Dataset | List[Dataset]:
+    #     for stage in self.stages:
+    #         if isinstance(stage, Extractor):
+    #             data = stage.run()
+    #         elif callable(stage):
+    #             print(f"Running function stage: {stage.__name__}")
+    #             data = stage(data)
+    #         elif isinstance(stage, PipelineStage):
+    #             data = stage.run(data)
+        
+    #     return data
 
     @log_operation
+    @abstractmethod
     def run(self) -> Dataset | List[Dataset]:
-        for stage in self.stages:
-            if isinstance(stage, Extractor):
-                data = stage.run()
-            elif callable(stage):
-                print(f"Running function stage: {stage.__name__}")
-                data = stage(data)
-            elif isinstance(stage, PipelineStage):
-                data = stage.run(data)
-        
-        return data
+        raise NotImplementedError("Subclasses must implement this method.")
 
+    @staticmethod
+    def _combine_dataset(lst : List[Dataset | pd.DataFrame], name : Optional[str] = None) -> Dataset:
+        c_list = []
+        for item in lst:
+            try:
+                c_list.append(item.data)
+            except:
+                c_list.append(item)
+
+        data = pd.concat(c_list, axis=0)
+        return Dataset(data, name)
 
 # ----------------------------------------------
 # Define Loader strategies
@@ -183,6 +176,7 @@ class MySQLLoader(Loader):
 
     
     def db_connect(self, config : ConfigManager):
+        """Return a Connection object"""
         dbconnect = mysql.connect(
             host=config.get("host"),
             user=config.get("user"),
@@ -191,6 +185,17 @@ class MySQLLoader(Loader):
         )
 
         return dbconnect
+    
+    @staticmethod
+    def get_sqlalchemy_engine(config : ConfigManager):
+        """Return pymysql engine"""
+        username = config.get("user")
+        password = config.get("password")
+        host = config.get("host")
+        port = config.get("port")
+        db = config.get("db")
+
+        return create_engine(f"mysql+pymysql://{username}:{password}@{host}:{port}/{db}")
     
     @staticmethod
     def match_columns(df : pd.DataFrame, columns : List[str]) -> bool:
@@ -209,7 +214,7 @@ class MySQLLoader(Loader):
         self, 
         data : Dataset, 
         table_mapping : str = None,
-        load_method : Literal["incremental", "append"] = None,
+        load_method : Literal["incremental", "append", "replace"] = None, # TODO: Add this method
         unique_key : List[str] = None,
         load_method_mapping : Dict[str, str] = None,
     ) -> None:
@@ -262,14 +267,26 @@ class MySQLLoader(Loader):
         dbconnect.commit()
         dbconnect.close()
     
+    def _incremental_load_sqlalchemy(
+            self, 
+            df : pd.DataFrame, 
+            unique_key : str | List[str],
+            db_name : str, 
+            table_name : str, 
+            load_path : str,
+            dbengine : Optional[str] = None,
+        ):
+        pass 
+    
     def _incremental_load(
             self, 
             df : pd.DataFrame, 
             unique_key : str | List[str],
             db_name : str, 
             table_name : str, 
-            dbconnect : str, 
             load_path : str,
+            dbconnect : Optional[str] = None, # TODO: change type hint here
+            # dbengine : Optional[str] = None,
         ) -> None:
         cursor = dbconnect.cursor(buffered=True)
         cursor.execute(f"USE {db_name}")
@@ -280,8 +297,7 @@ class MySQLLoader(Loader):
         if isinstance(unique_key, str):
             unique_key = [unique_key]
 
-        # Create prepared cursor 
-        cursor = dbconnect.cursor(prepared=True)
+        
 
         # Check matching columns 
         database_cols = [col for col in cursor.column_names if col != "IngestionTime"]
@@ -292,11 +308,14 @@ class MySQLLoader(Loader):
 
         # Inject ingestion Time
         df["IngestionTime"] = self.get_ingestion_time()
-        colnames = ", ".join(df.columns)
+        colnames = ", ".join([f"`{col}`" for col in df.columns])
 
         # Filter only those not exists 
         # df = self._filter_exists(df, db_df, unique_key)
         
+        # Create prepared cursor 
+        cursor = dbconnect.cursor(prepared=True)
+
         # Load
         for _, row in df.iterrows():
             values = ", ".join(["?" for _ in range(len(df.columns))])
@@ -432,13 +451,13 @@ class AzureMySQL(Loader):
 
         # Inject ingestion Time
         df["IngestionTime"] = self.get_ingestion_time()
-        colnames = ", ".join(df.columns)
+        colnames = ", ".join([f"`{col}`" for col in df.columns])
 
         # Filter only those not exists 
         # df = self._filter_exists(df, db_df, unique_key)
         
         # Load
-        for _, row in df.iterrows():
+        for _, row in tqdm(df.iterrows()):
             values = ", ".join(["?" for _ in range(len(df.columns))])
             sql = f"INSERT INTO {table_name} ({colnames}) " + f"VALUES ({values})"
             cursor.execute(sql, tuple(row))
