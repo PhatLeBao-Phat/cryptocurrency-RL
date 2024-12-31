@@ -195,14 +195,6 @@ class QuotaPipeline(Pipeline):
         x = self._combine_dataset(result)
         logger.info("Finished extracting data...")
 
-        # Transform
-        logger.info("Transforming data...")
-        x.data["timestamp"] = pd.to_datetime(x.data["timestamp"])
-        x.data["earningsAnnouncement"] = x.data['earningsAnnouncement'].apply(lambda val : pd.to_datetime(val, errors="ignore"))
-        # transform_stage = CryptoTransformer()
-        logger.info("Finished Transform data")
-        # x = transform_stage.run(x)
-
         # Load to db
         logger.info("Loading to MySQL database...")
         loader_stage = MySQLLoader(

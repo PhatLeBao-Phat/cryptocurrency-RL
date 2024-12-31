@@ -226,7 +226,12 @@ class MySQLLoader(Loader):
             table_mapping = self.table_mapping
 
         # Get connect
-        dbconnect = self.db_connect(self.config)
+        try:
+            dbengine = self.get_sqlalchemy_engine(self.config)
+            dbconnect = dbengine.connect()
+        except:
+            try: dbconnect = self.db_connect(self.config)
+            except: ValueError("Cannot connect to database on given config!")
 
         # Get available dataset
         if not load_method_mapping and not load_method:
@@ -247,14 +252,23 @@ class MySQLLoader(Loader):
         df = data.data
         
         # Incremental mode
-        if load_method == "incremental":
-            self._incremental_load(
+        if load_method == "incremental":    
+            # TODO: Obsolete
+            # self._incremental_load(
+            #     df,
+            #     unique_key,
+            #     db_name,
+            #     table_name,
+            #     dbconnect,
+            #     load_path
+            # )
+            self._incremental_load_sqlalchemy(
                 df,
                 unique_key,
                 db_name,
                 table_name,
-                dbconnect,
-                load_path
+                load_path,
+                dbengine
             )
         elif load_method == "append":
             self._append_load(
@@ -264,8 +278,8 @@ class MySQLLoader(Loader):
         else:
             raise ValueError(f"Invalid Load method {load_method}")
             
-        dbconnect.commit()
-        dbconnect.close()
+        # dbconnect.commit()
+        # dbconnect.close()
     
     def _incremental_load_sqlalchemy(
             self, 
@@ -275,8 +289,36 @@ class MySQLLoader(Loader):
             table_name : str, 
             load_path : str,
             dbengine : Optional[str] = None,
-        ):
-        pass 
+        ) -> None:
+        """Loading data with sqlalchemy lib and pandas."""
+        with dbengine.connect() as cursor:
+            cursor.execute(f"USE {db_name}")
+            d = cursor.execute(f"SELECT * FROM {load_path}")
+            db_df = pd.DataFrame(d)
+        
+        # Get unique values to check exist
+        if isinstance(unique_key, str):
+            unique_key = [unique_key]
+        
+        # Check matching columns 
+        database_cols = [col for col in db_df.columns if col != "IngestionTime"]
+        if self.match_columns(df, database_cols):
+            raise KeyError(
+                f"Not matching between database cols {list(df.columns)}" 
+                f"and table cols {database_cols}")
+
+        # Inject ingestion Time
+        df["IngestionTime"] = self.get_ingestion_time()
+        colnames = ", ".join([f"`{col}`" for col in df.columns])
+
+        # Load the PD table 
+        with dbengine.connect() as cursor:
+            df.to_sql(table_name, con=dbengine, if_exists='append', index=False)
+            # cursor.commit()
+
+    def _append_load_sqlalchemy(self):
+        # TODO: to be implemented
+        pass
     
     def _incremental_load(
             self, 
@@ -296,8 +338,6 @@ class MySQLLoader(Loader):
         # Get unique values to check exist
         if isinstance(unique_key, str):
             unique_key = [unique_key]
-
-        
 
         # Check matching columns 
         database_cols = [col for col in cursor.column_names if col != "IngestionTime"]
@@ -322,7 +362,7 @@ class MySQLLoader(Loader):
             sql = f"INSERT INTO {table_name} ({colnames}) " + f"VALUES ({values})"
             cursor.execute(sql, tuple(row))
     
-    def _append_load(self, data : Dataset, table_mapping) -> None: 
+    def _append_load(self) -> None: 
         pass
 
     @staticmethod
@@ -383,9 +423,6 @@ class AzureMySQL(Loader):
             load_method = self.load_method
         if not table_name:
             table_name = self.table_name
-
-        # Get connect
-        dbconnect = self.db_connect(self.config)
 
         # Get available dataset
         if not load_method_mapping and not load_method:
