@@ -11,7 +11,7 @@ from typing import Callable
 
 # Config 
 logger.add(
-    "log/log_{time:YYYY-MM-DD}.log", 
+    "logs/log_{time:YYYY-MM-DD}.log", 
     level="INFO", 
     format="{time:YYYY-MM-DD at HH:mm:ss} | {level} | {message}",
     diagnose=True,
