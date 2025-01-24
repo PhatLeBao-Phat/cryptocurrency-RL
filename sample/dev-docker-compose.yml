@@ -4,20 +4,17 @@ name: dev-sample-conda
 services:
   my-conda-app:
     build:
-      context: .   # Build the Docker image from the current directory
-      dockerfile: Dockerfile   # Specify the Dockerfile to use for building the image
+      context: .  # Build the Docker image from the current directory
+      dockerfile: Dockerfile  # Specify the Dockerfile to use for building the image
     tty: true  # Keep the container running interactively (for debugging purposes)
     volumes:
-      - type: volume 
+      - type: volume
         source: dependencies
-        target: /root/miniconda3
-    # Optionally, print the mounted path to verify and keep the container running
-    command: |
+        target: /opt/miniconda3
+    command: >
       /bin/bash -c "
-      conda env create --name env -f environment.yml &&
       conda env list &&
       echo 'PATH is $PATH' &&
       tail -f /dev/null"
 volumes:
   dependencies:
-    

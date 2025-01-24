@@ -3,8 +3,9 @@ FROM ubuntu:18.04
 ENV PATH="/opt/miniconda3/bin:${PATH}"
 ARG PATH="/opt/miniconda3/bin:${PATH}"
 
-COPY dev/environment.yml app/environment.yml
-COPY bash/ .
+COPY bash/ app/
+COPY dev/environment.yml environment.yml
+
 
 # Install wget to fetch Miniconda
 RUN apt-get update && \
