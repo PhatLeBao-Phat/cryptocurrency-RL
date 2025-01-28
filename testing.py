@@ -1,7 +1,11 @@
 # Import
-import pytest
+import psycopg2
+from pathlib import Path
 import pandas as pd
-from dev.scripts.pipeline import MySQLLoader
+
+# Local import
+from dev.utils.config_manager import ConfigManager
+from dev.scripts.pipeline import MySQLLoader, PostgreSQLLoader
 
 
 # ----------------------------------------------
@@ -35,9 +39,31 @@ class TestMySQLLoader:
 
 
 # ----------------------------------------------
+# PostgreSQL Test Cases
+# ----------------------------------------------
+class TestPostgreSQLLoader:
+    # Prep 
+    config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="postgres-dev")
+    loader = PostgreSQLLoader(
+        config=config,
+        table_name="dim_fact_cryptocurrency",
+        load_method="incremental",
+    )
+
+    def test_db_connect(self):
+        # Without param
+        conn = self.loader.db_connect()
+        assert isinstance(conn, list)
+        
+        
+
+# ----------------------------------------------
 # Pipeline Test Cases (To Be Implemented)
 # ----------------------------------------------
 class TestPipeline:
     def test_pipeline_execution(self):
         # Implement pipeline tests
         pass
+
+
+

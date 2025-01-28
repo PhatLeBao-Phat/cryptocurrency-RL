@@ -12,6 +12,7 @@ from typing import *
 from abc import ABC, abstractmethod
 from tqdm import tqdm
 from sqlalchemy import create_engine
+import psycopg2
 
 # Local import 
 from ..utils.config_manager import *
@@ -61,27 +62,6 @@ class Transformer(PipelineStage):
     @abstractmethod
     def transform(self, data : Dataset | Dict[str, Dataset]) -> Dataset:
         pass
-    
-    # TODO: Deprecated
-    # def transform(self, data : Dataset | Dict[str, Dataset]) -> Dataset:
-    #     if isinstance(data, Dataset):
-    #         return self._single_dataset_transform(data)
-    #     elif isinstance(data, dict):
-    #         return self._dict_dataset_transform(data)
-    #     else:
-    #         raise ValueError("Unsupported dataset type")
-    
-    # @abstractmethod
-    # def _single_dataset_transform(data : Dataset) -> Dataset:
-    #     pass
-    
-    # @abstractmethod
-    # def _dict_dataset_transform(data : List[Dataset]) -> List[Dataset]:
-    #     pass
-
-    # @staticmethod
-    # def clean_dataset(data : List[Dataset] | Dataset) -> List[Dataset] | Dataset:
-    #     pass
 
     def run(self, *args, **kwargs) -> Dataset | List[Dataset]:
         return self.transform(*args, **kwargs)
@@ -101,6 +81,23 @@ class Loader(PipelineStage):
         current_time = datetime.now(pytz.timezone(tz))
 
         return current_time
+    
+    @staticmethod
+    def _filter_exists(df, db_df, unique_key) -> None:
+        # Get incremental values 
+        if isinstance(unique_key, str):
+            unique_key = [unique_key]
+        incremental_values = set(zip(*[db_df[key] for key in unique_key]))
+
+        # Filtering
+
+        bol_filter = df.apply(
+            lambda row : set(row[key] for key in unique_key) in incremental_values,
+            axis=1,
+        )
+        df = df[bol_filter]
+
+        return df
     
     @staticmethod
     def match_columns(df : pd.DataFrame, columns : List[str]) -> bool:
@@ -125,19 +122,6 @@ class Pipeline:
     ) -> None:
         self.stages = stages 
         self.config = config
-
-    # @log_operation
-    # def run(self) -> Dataset | List[Dataset]:
-    #     for stage in self.stages:
-    #         if isinstance(stage, Extractor):
-    #             data = stage.run()
-    #         elif callable(stage):
-    #             print(f"Running function stage: {stage.__name__}")
-    #             data = stage(data)
-    #         elif isinstance(stage, PipelineStage):
-    #             data = stage.run(data)
-        
-    #     return data
 
     @log_operation
     @abstractmethod
@@ -365,23 +349,6 @@ class MySQLLoader(Loader):
     def _append_load(self) -> None: 
         pass
 
-    @staticmethod
-    def _filter_exists(df, db_df, unique_key) -> None:
-        # Get incremental values 
-        if isinstance(unique_key, str):
-            unique_key = [unique_key]
-        incremental_values = set(zip(*[db_df[key] for key in unique_key]))
-
-        # Filtering
-
-        bol_filter = df.apply(
-            lambda row : set(row[key] for key in unique_key) in incremental_values,
-            axis=1,
-        )
-        df = df[bol_filter]
-
-        return df
-    
 
 class AzureMySQL(Loader):
     def __init__(self, 
@@ -439,19 +406,19 @@ class AzureMySQL(Loader):
 
         # Add data to database
         df = data.data
+
+        # Get dbconnect 
+        dbconnect = self.db_connect(config=self.config)
         
         # Incremental mode
         if load_method == "incremental":
             self._incremental_load(
-                df,
-                unique_key,
-                table_name,
-                dbconnect,
+                df, unique_key, 
+                table_name, dbconnect,
             )
         elif load_method == "append":
             self._append_load(
-                df,
-                table_name
+                df,table_name
             )
         else:
             raise ValueError(f"Invalid Load method {load_method}")
@@ -466,6 +433,9 @@ class AzureMySQL(Loader):
             table_name : str, 
             dbconnect : str, 
         ) -> None:
+        """Incremental Load data"""
+
+        # Set up cursor
         cursor = dbconnect.cursor()
         cursor.execute(f"SELECT * FROM {table_name}")
         column_names = [column[0] for column in cursor.description]
@@ -489,9 +459,6 @@ class AzureMySQL(Loader):
         # Inject ingestion Time
         df["IngestionTime"] = self.get_ingestion_time()
         colnames = ", ".join([f"`{col}`" for col in df.columns])
-
-        # Filter only those not exists 
-        # df = self._filter_exists(df, db_df, unique_key)
         
         # Load
         for _, row in tqdm(df.iterrows()):
@@ -501,20 +468,44 @@ class AzureMySQL(Loader):
     
     def _append_load(self, data : Dataset, table_name : str) -> None: 
         pass
+    
 
-    @staticmethod
-    def _filter_exists(df, db_df, unique_key) -> None:
-        # Get incremental values 
-        if isinstance(unique_key, str):
-            unique_key = [unique_key]
-        incremental_values = set(zip(*[db_df[key] for key in unique_key]))
+class PostgreSQLLoader(Loader):
+    def __init__(self, 
+        config : ConfigManager, 
+        table_name : Optional[str] = None,
+        load_method : Literal["incremental", "append"] = None,
+        unique_key : str = None):
+        super().__init__()
+        self.config = config 
+        self.table_name = table_name
+        self.load_method = load_method
+        self.unique_key = unique_key
 
-        # Filtering
+        logger.info(f"Initialized {self.__class__.__name__} with {self.__dict__}")
 
-        bol_filter = df.apply(
-            lambda row : set(row[key] for key in unique_key) in incremental_values,
-            axis=1,
+    
+    def db_connect(self, config : Optional[ConfigManager] = None):
+        if not config:
+            config = self.config
+        conn = psycopg2.connect(    
+            host=config.get("host"),
+            database=config.get("database"),
+            user=config.get("username"),
+            password=config.get("password"),
+            port=config.get("port")
         )
-        df = df[bol_filter]
 
-        return df
+        return conn 
+        
+    
+
+    def load():
+        pass 
+
+    def _incremental_load():
+        pass
+
+    def _append_load():
+        pass 
+
