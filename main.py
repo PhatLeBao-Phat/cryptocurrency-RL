@@ -1,4 +1,4 @@
-from etl_basic.crypto_pipeline import (
+from etl_pipelines.crypto_pipeline import (
     CryptoPipeline, 
     QuotaPipeline,
 )

@@ -52,7 +52,7 @@ def crypto_currency_quota_etl():
         system_site_packages=False,
     )
     def cryptocurrency_etl():
-        from etl_basic.crypto_pipeline import (
+        from etl_pipelines.crypto_pipeline import (
             CryptoPipeline, 
             QuotaPipeline,
         )
@@ -62,9 +62,8 @@ def crypto_currency_quota_etl():
 
     # Task dependencies
     create_quota_table = create_quota_table_in_postgres()
-    virtualenv_task = callable_virtualenv()
     cryptocurrency_etl = cryptocurrency_etl()
-    create_quota_table >> virtualenv_task >> cryptocurrency_etl
+    create_quota_table >>  cryptocurrency_etl
 
 
 # Instantiate the DAG

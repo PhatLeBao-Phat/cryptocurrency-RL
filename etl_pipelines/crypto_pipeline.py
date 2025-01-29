@@ -11,7 +11,8 @@ from pathlib import Path
 from tqdm import tqdm
 
 # Local import
-from dev.scripts.pipeline import *
+from dev.src.pipeline import *
+from dev.src.loader import *
 from dev.utils.api_client import *
 from dev.utils.logging import *
 
@@ -63,7 +64,7 @@ class CryptoTransformer(Transformer):
     @log_operation
     def transform(self, data: Dataset) -> Dataset:
         if self.rename_map:
-            return Dataset(data=data.data.rename(self.rename_map))
+            return Dataset(data=data.data.rename(columns=self.rename_map))
         else:
             data.name = "dim_crypto"
             return data
@@ -79,12 +80,12 @@ def CryptoETL():
         api_client=api, endpoint="symbol/available-cryptocurrencies"
     )
     # Transform Stage
-    transform_stage = CryptoTransformer()
-
+    transform_stage = CryptoTransformer(
+        rename_map={"stockExchange" : "stock_exchange", "exchangeShortName" : "exchange_short_name"})
     # Load Stage
     loader_stage = MySQLLoader(
         config, 
-        table_mapping="airflowdb.dim_crypto",
+        load_path="airflowdb.dim_crypto",
         load_method="incremental",
         unique_key="symbol",
     )
@@ -109,9 +110,10 @@ class CryptoPipeline(Pipeline):
     def run(self):
         # config 
         logger.info("Parsing Configuration...")
-        db_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="mysql-dev")
+        # db_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="mysql-dev")
         api_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="finance-api")
-        azure_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="azure-mysql")
+        # azure_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="azure-mysql")
+        postgres_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="postgres-dev")
         api = APIClient(api_config.get("api_key"))
         logger.info("Finished Parsing Configuration")
 
@@ -125,20 +127,30 @@ class CryptoPipeline(Pipeline):
 
         # Transform
         logger.info("Transforming data...")
-        transform_stage = CryptoTransformer()
+        transform_stage = CryptoTransformer(
+            rename_map={"stockExchange" : "stock_exchange", "exchangeShortName" : "exchange_short_name"})
         logger.info("Finished Transform data")
         x = transform_stage.run(x)
 
         # Load to db
         logger.info("Loading to MySQL database...")
-        loader_stage = MySQLLoader(
-            db_config, 
-            table_mapping="airflowdb.dim_crypto",
+        # loader_stage = MySQLLoader(
+        #     db_config, 
+        #     load_path="airflowdb.dim_crypto",
+        #     load_method="incremental",
+        #     unique_key="symbol",
+        # )
+        
+        loader_stage = PostgreSQLLoader(
+            config=postgres_config,
+            table_name="dim_crypto",
+            load_path="public.dim_crypto",
             load_method="incremental",
-            unique_key="symbol",
+            unique_key="id"
         )
         loader_stage.run(x)
-        logger.info("Finished load data to MySQL db")
+        logger.info("Finished load data to postgres db")
+        # logger.info("Finished load data to MySQL db")
 
         # Load to Azure
         # logger.info("Loading to Azure SQL database...")
@@ -149,7 +161,7 @@ class CryptoPipeline(Pipeline):
         #     unique_key="symbol",
         # )
         # loader_stage.run(x)
-        logger.info("Finished load data to Azure db")
+        # logger.info("Finished load data to Azure db")
 
 
 # ----------------------------------------------
@@ -199,7 +211,7 @@ class QuotaPipeline(Pipeline):
         logger.info("Loading to MySQL database...")
         loader_stage = MySQLLoader(
             db_config, 
-            table_mapping="airflowdb.fact_cryptoquota",
+            load_path="airflowdb.fact_cryptoquota",
             load_method="incremental",
             unique_key=["symbol", "timestamp"],
         )

@@ -5,7 +5,7 @@ import pandas as pd
 
 # Local import
 from dev.utils.config_manager import ConfigManager
-from dev.scripts.pipeline import MySQLLoader, PostgreSQLLoader
+from dev.src.pipeline import MySQLLoader, PostgreSQLLoader
 
 
 # ----------------------------------------------
@@ -53,8 +53,9 @@ class TestPostgreSQLLoader:
     def test_db_connect(self):
         # Without param
         conn = self.loader.db_connect()
-        assert isinstance(conn, list)
-        
+        assert isinstance(conn, psycopg2.extensions.connection)
+
+
         
 
 # ----------------------------------------------
