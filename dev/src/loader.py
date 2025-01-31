@@ -2,46 +2,50 @@
 # Define Loader strategies
 # ----------------------------------------------
 
-# import 
 import mysql.connector as mysql
 import pyodbc
 import pandas as pd
-from typing import *
+from typing import List, Optional, Literal
 from tqdm import tqdm
 from sqlalchemy import create_engine
-from sqlalchemy.engine import Connection
+from sqlalchemy.engine import Connection, Engine
 
-# Local import
-from .pipeline import *
-
+from dev.src.pipeline import Loader, Dataset
+from dev.src.database import DatabaseConnection
+from dev.utils.config_manager import ConfigManager
+from dev.utils.logging import logger, log_operation
 
 
 class MySQLLoader(Loader):
     """Loader object for MySQL database"""
-    def __init__(self, 
+    def __init__(
+        self, 
         config : ConfigManager, 
         load_path : str = None,
         load_method : Literal["incremental", "append"] = None,
-        unique_key : str = None):
-        super().__init__()
+        unique_key : str = None
+    ):
         self.config = config 
         self.load_path = load_path
         self.load_method = load_method
         self.unique_key = unique_key
+        self.db_connection = DatabaseConnection(config)
 
         logger.info(f"Initialized {self.__class__.__name__} with {self.__dict__}")
 
-    def db_connect(self, config : ConfigManager):
+    def db_connect(self) -> mysql.connections.Connection:
         """Return a Connection object"""
-        dbconnect = mysql.connect(
-            host=config.get("host"),
-            user=config.get("user"),
-            password=config.get("password"),
-            db=config.get("db"),
-        )
-
-        return dbconnect
+        return self.db_connection.connect_mysql()
     
+    def close(self, connection: mysql.connections.Connection) -> None:
+        """Safely closes a MySQL connection."""
+        try:
+            if connection and connection.open:
+                connection.close()
+                logger.info("MySQL connection closed.")
+        except mysql.MySQLError as e:
+            logger.error(f"Error while closing MySQL connection: {e}")
+
     @staticmethod
     def get_sqlalchemy_engine(config : ConfigManager):
         """Return pymysql engine"""
@@ -50,21 +54,8 @@ class MySQLLoader(Loader):
         host = config.get("host")
         port = config.get("port")
         db = config.get("db")
-
         return create_engine(f"mysql+pymysql://{username}:{password}@{host}:{port}/{db}")
     
-    @staticmethod
-    def match_columns(df : pd.DataFrame, columns : List[str]) -> bool:
-        for col in df.columns:
-            if col not in columns:
-                return False
-        
-        for col in columns:
-            if col not in list(df.columns):
-                return False
-        
-        return True
-
     @log_operation
     def load(
         self, 
