@@ -13,7 +13,7 @@ t_log = logging.getLogger("airflow.task")
 _QUERY_PATH = "queries/init_cryptoquota.sql"
 
 # Parse requirements
-with open("etl_basic/crypto_etl_requirements.txt") as f:
+with open("etl_pipelines/crypto_etl_requirements.txt") as f:
     requirements = f.read().splitlines()
 
 
