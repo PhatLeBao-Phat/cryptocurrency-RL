@@ -88,3 +88,12 @@ psql -h 2cryptocurrency-rl-postgres-1 -p 5432 -U airflow
 ```
 
 note that the `-h` param is using the name of the docker container in the network here since in a docker network, you can access other containers in a namespace-like manner.
+
+#### `[python]` to filter existing rows between 2 df 
+```python
+# Merge and filter for new records
+        merged_df = df.merge(db_df, on=unique_key, how="left", indicator=True)
+        return merged_df[merged_df["_merge"] == "left_only"].drop(columns=["_merge"])
+```
+
+Such a good trick that we should all memorize

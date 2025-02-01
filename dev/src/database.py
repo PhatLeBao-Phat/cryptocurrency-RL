@@ -2,7 +2,8 @@
 # Define Database Connection strategies
 # ----------------------------------------------
 import mysql.connector as mysql
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
 from typing import Literal, Dict, Union
 
 from dev.utils.config_manager import ConfigManager
@@ -40,7 +41,7 @@ class DatabaseConnection:
 
         return db_config
 
-    def connect_mysql(self) -> mysql.connections.Connection:
+    def connect_mysql(self) -> mysql.MySQLConnection:
         """
         Connect to MySQL database using configuration data.
 
@@ -95,7 +96,7 @@ class DatabaseConnection:
             logger.error(f"Failed to create SQLAlchemy engine: {e}")
             raise
 
-    def connect(self) -> Union[mysql.connections.Connection, None]:
+    def connect(self) -> Union[mysql.MySQLConnection, None]:
         """
         Universal connect function that connects to the specified database type.
 

@@ -1,25 +1,23 @@
 # ----------------------------------------------
 #  Cryptography ETLs
 # ----------------------------------------------
-
-# Import
 import requests
 from pathlib import Path
 import pandas as pd
-from typing import *
 from pathlib import Path
 from tqdm import tqdm
+from typing import Optional, List, Dict
 
-# Local import
-from dev.src.pipeline import *
-from dev.src.loader import *
-from dev.utils.api_client import *
-from dev.utils.logging import *
+from dev.src.pipeline import Extractor, Dataset, Transformer, Pipeline
+from dev.src.loader import MySQLLoader
+from dev.src.database import DatabaseConnection
+from dev.utils.config_manager import ConfigManager
+from dev.utils.api_client import APIClient
+from dev.utils.logging import logger, log_operation
 
 
 class CryptoExtractor(Extractor):
-    """Extract CryptoCurrency info
-    """
+    """Extract CryptoCurrency info"""
 
     def __init__(
         self,
@@ -34,7 +32,6 @@ class CryptoExtractor(Extractor):
         config : ConfigManager includes authentication and url. Optional.
         endpoint : 
         """
-        super().__init__()
         self.api_client = api_client
         self.config = config
         self.endpoint = endpoint
@@ -57,7 +54,6 @@ class CryptoTransformer(Transformer):
     """Transform the Crypto Currency info"""
 
     def __init__(self, rename_map: Optional[Dict[str, str]] = None):
-        super().__init__()
         self.rename_map = rename_map
         logger.info(f"Initialized {self.__class__.__name__} with {self.__dict__}")
 
@@ -65,9 +61,7 @@ class CryptoTransformer(Transformer):
     def transform(self, data: Dataset) -> Dataset:
         if self.rename_map:
             return Dataset(data=data.data.rename(columns=self.rename_map))
-        else:
-            data.name = "dim_crypto"
-            return data
+        return data
 
 
 def CryptoETL():
@@ -110,10 +104,10 @@ class CryptoPipeline(Pipeline):
     def run(self):
         # config 
         logger.info("Parsing Configuration...")
-        # db_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="mysql-dev")
-        api_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="finance-api")
+        db_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="mysql-dev")
         # azure_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="azure-mysql")
-        postgres_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="postgres-dev")
+        # postgres_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="postgres-dev")
+        api_config = ConfigManager(config_path=Path.cwd() / "config.cfg", env="finance-api")
         api = APIClient(api_config.get("api_key"))
         logger.info("Finished Parsing Configuration")
 
@@ -134,22 +128,21 @@ class CryptoPipeline(Pipeline):
 
         # Load to db
         logger.info("Loading to MySQL database...")
-        # loader_stage = MySQLLoader(
-        #     db_config, 
-        #     load_path="airflowdb.dim_crypto",
+        loader_stage = MySQLLoader(
+            db_config, 
+            load_path="airflowdb.dim_crypto",
+            load_method="incremental",
+            unique_key="symbol",
+        )
+        
+        # loader_stage = PostgreSQLLoader(
+        #     config=postgres_config,
+        #     table_name="dim_crypto",
+        #     load_path="public.dim_crypto",
         #     load_method="incremental",
-        #     unique_key="symbol",
+        #     unique_key="id"
         # )
         
-        loader_stage = PostgreSQLLoader(
-            config=postgres_config,
-            table_name="dim_crypto",
-            load_path="public.dim_crypto",
-            load_method="incremental",
-            unique_key="id"
-        )
-        loader_stage.run(x)
-        logger.info("Finished load data to postgres db")
         # logger.info("Finished load data to MySQL db")
 
         # Load to Azure
@@ -160,14 +153,14 @@ class CryptoPipeline(Pipeline):
         #     load_method="incremental",
         #     unique_key="symbol",
         # )
-        # loader_stage.run(x)
-        # logger.info("Finished load data to Azure db")
+
+        loader_stage.run(x)
+        logger.info("Finished load data to MySQL db")
 
 
 # ----------------------------------------------
 #  Quota ETLs
 # ----------------------------------------------
-
 class QuotaPipeline(Pipeline):
     """ETL Pipline to extract quota object for top 10 Cryptocurrencies"""
 
@@ -198,14 +191,29 @@ class QuotaPipeline(Pipeline):
 
         # Extract 
         logger.info("Extracting data...")
+        db_connection = DatabaseConnection(db_config, db_type="mysql")
+        dbengine = db_connection.get_sqlalchemy_engine()
+        with dbengine.connect() as cursor:
+            cursor.execute(f"USE airflowdb")
+            crypto_currency = pd.read_sql(
+                """
+                SELECT distinct REPLACE(symbol, currency, '') AS symbol 
+                FROM dim_crypto
+                """, 
+            con=cursor)
         result = list()
-        for symbol in tqdm(self.crypto_symbols):
+        for symbol in tqdm(crypto_currency["symbol"]):
             extract_stage = CryptoExtractor(
                 api_client=api, endpoint=f"quote/{symbol}"
             )
             result.append(extract_stage.run())
         x = self._combine_dataset(result)
         logger.info("Finished extracting data...")
+
+        # Transformer 
+        logger.info("Transforming data...")
+        x.data["timestamp"] = pd.to_datetime(x.data["timestamp"])
+        x.data["earningsAnnouncement"] = pd.to_datetime(x.data["earningsAnnouncement"])
 
         # Load to db
         logger.info("Loading to MySQL database...")

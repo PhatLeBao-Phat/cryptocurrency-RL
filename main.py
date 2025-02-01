@@ -1,8 +1,9 @@
+# Test running
 from etl_pipelines.crypto_pipeline import (
     CryptoPipeline, 
     QuotaPipeline,
 )
-from dev.utils.logging import *
+from dev.utils.logging import logger
 
 if __name__ == "__main__":
     # Fetching Crypto symbol data

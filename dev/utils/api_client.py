@@ -17,10 +17,15 @@ class APIClient:
         
         """
         Initialize the API client with base URL and authentication details.
-        
-        :param base_url: The root URL for the API.
-        :param auth_key: API key or authentication token. Default is FiancialModelling APIs.
-        :param timeout: Request timeout in seconds.
+
+        Parameters
+        -----------
+        base_url: 
+            The root URL for the API.
+        auth_key: 
+            API key or authentication token. Default is FiancialModelling APIs.
+        timeout: 
+            Request timeout in seconds.
         """
         self._auth_key = auth_key
         self.base_url = base_url
@@ -30,23 +35,21 @@ class APIClient:
         """
         Perform a GET request. 
 
-        Attributes
+        Parameters
         ----------
         endpoint : str 
             the endpoint of the api to add to base url for GET method. 
         
         Examples
         ---------
-        ```
         # URL
         [BASE] [https://financialmodelingprep.com/api/v3] / [ENDPOINT] [symbol/available-cryptocurrencies]
-        api = APIClient(auth_key, base_url)
+        >>> api = APIClient(auth_key, base_url)
+        
         # Get method
-        response = api.get("symbol/available-cryptocurrencies")
-        r.status
-        >> 200
-        ```
-
+        >>> response = api.get("symbol/available-cryptocurrencies")
+        >>> r.status
+        200
         """
         r = requests.get(
             self.base_url + '/' + 
